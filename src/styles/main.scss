@@ -1,0 +1,104 @@
+@use './variables' as *;
+@use './mixins' as *;
+
+// Base reset overrides
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  background-color: $body-bg;
+  color: $text-color;
+}
+
+// Header styles
+.header-shadow {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.nav-links .nav-link {
+  color: $text-color;
+  opacity: 0.85;
+}
+.nav-links .nav-link:hover { opacity: 1; }
+
+.search-field .input-group-text {
+  background: #fff;
+  border-right: 0;
+  color: $muted-color;
+}
+.search-field .form-control { border-left: 0; }
+
+.action-icons a { color: $text-color; opacity: 0.9; }
+.action-icons a:hover { opacity: 1; }
+.cart-badge { font-size: 10px; padding: 2px 6px; }
+
+// Container control for header
+.header-container {
+  @include clamp-container($header-max-width);
+  @include header-gutters();
+}
+
+
+// Login page styles
+.login-page {
+  min-height: calc(100vh - 160px);
+  display: flex;
+  align-items: flex-start;
+}
+
+.login-wrap {
+  width: 100%;
+  max-width: 560px;
+  background: #fff;
+  border-radius: 8px;
+  padding: 32px 28px 28px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.06);
+}
+
+.login-form .form-control {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.login-form a { color: $text-color; }
+.login-form a:hover { text-decoration: underline; }
+
+.login-form .btn-dark {
+  letter-spacing: .5px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+// Register page styles
+.register-page {
+  min-height: calc(100vh - 160px);
+}
+
+.register-wrap {
+  background: #fff;
+  border-radius: 8px;
+  padding: 28px 24px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.06);
+}
+
+.register-wrap .form-control,
+.register-wrap .form-select {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.captcha-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  letter-spacing: 6px;
+  background: #f1f3f5;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  height: 48px;
+  min-width: 110px;
+  padding: 0 12px;
+}
+

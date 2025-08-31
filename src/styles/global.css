@@ -1,0 +1,83 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Noto Sans', 'Liberation Sans', sans-serif;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #f8f9fa;
+}
+.container-xxl {
+  max-width: 1320px; /* rộng hơn mặc định một chút để thoáng lề trái/phải */
+}
+
+
+a {
+  text-decoration: none;
+}
+
+/* Header tweaks */
+.header-shadow {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.nav-links .nav-link {
+  color: #212529;
+  opacity: 0.85;
+}
+
+.nav-links .nav-link:hover {
+  opacity: 1;
+}
+
+.search-field .input-group-text {
+  background: #fff;
+  border-right: 0;
+  color: #8a8f98;
+}
+
+.search-field .form-control {
+  border-left: 0;
+}
+
+.action-icons a {
+  color: #212529;
+  opacity: 0.9;
+}
+
+.action-icons a:hover {
+  opacity: 1;
+}
+
+.cart-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+}
+
+/* Navbar container gutters */
+.header-container {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+@media (min-width: 576px) {
+  .header-container {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+@media (min-width: 1400px) {
+  .header-container {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}
+
+
