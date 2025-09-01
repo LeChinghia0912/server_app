@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { isAuthenticated } from '../utils/auth'
 
-export default function Navbar() {
+export default function Navbar({ onOpenCart }) {
   const [authed, setAuthed] = useState(isAuthenticated())
 
   useEffect(() => {
@@ -72,14 +72,14 @@ export default function Navbar() {
               <Link className="text-reset" to={authed ? '/user' : '/login'} aria-label="Tài khoản">
                 <i className="bi bi-person fs-5"></i>
               </Link>
-              <a className="position-relative text-reset" href="#" aria-label="Giỏ hàng">
+              <button type="button" className="position-relative text-reset btn p-0" aria-label="Giỏ hàng" onClick={onOpenCart}>
                 <i className="bi bi-bag fs-5"></i>
                 <span
                   className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-dark text-white cart-badge"
                 >
                   0
                 </span>
-              </a>
+              </button>
             </div>
           </div>
         </div>

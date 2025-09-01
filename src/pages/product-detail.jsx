@@ -3,7 +3,10 @@ import { useNavigate, useParams } from "react-router-dom";
 import { getProductById } from "../api/products";
 import { getColors } from "../api/colors";
 import { getSizes } from "../api/sizes";
-import { resolveImageFromProduct, formatCurrency, placeholderSvg } from "../utils/product";
+import { resolveImageFromProduct, formatCurrency, placeholderSvg, pickVariantsFromProduct, extractColorOptionsFrom, extractSizeOptionsFrom, resolveVariantId } from "../utils/product";
+import { addToCart } from "../api/cart";
+import { showToast } from "../utils/toast";
+import { getVariantsByProductId } from "../api/variants";
 
 const PLACEHOLDER_SVG = placeholderSvg(800, 800);
 
@@ -18,6 +21,8 @@ export default function ProductDetailPage() {
   const [colors, setColors] = useState([]);
   const [sizesList, setSizesList] = useState([]);
   const [quantity, setQuantity] = useState(1);
+  const [saving, setSaving] = useState(false);
+  const [variantsState, setVariantsState] = useState([]);
 
   useEffect(() => {
     let mounted = true;
@@ -28,6 +33,11 @@ export default function ProductDetailPage() {
         const res = await getProductById(id);
         const data = res?.data || res;
         if (mounted) setProduct(data);
+        // Load variants explicitly
+        try {
+          const list = await getVariantsByProductId(data?.id || id);
+          if (mounted) setVariantsState(Array.isArray(list) ? list : []);
+        } catch (_) {}
       } catch (e) {
         if (mounted) setError(e?.message || "Không thể tải sản phẩm");
       } finally {
@@ -71,30 +81,20 @@ export default function ProductDetailPage() {
     () => resolveImageFromProduct(product || {}),
     [product]
   );
-  const colorOptions = useMemo(() => {
-    if (Array.isArray(colors) && colors.length)
-      return colors.map((c) => c?.name ?? c).filter(Boolean);
-    const raw =
-      product?.colors ||
-      product?.colorOptions ||
-      product?.options?.colors ||
-      product?.availableColors ||
-      [];
-    const arr = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : [];
-    return arr.map((c) => c?.name ?? c).filter(Boolean);
-  }, [colors, product]);
-  const sizeOptions = useMemo(() => {
-    if (Array.isArray(sizesList) && sizesList.length)
-      return sizesList.map((s) => s?.name ?? s).filter(Boolean);
-    const raw =
-      product?.sizes ||
-      product?.sizeOptions ||
-      product?.options?.sizes ||
-      product?.availableSizes ||
-      [];
-    const arr = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : [];
-    return arr.map((s) => s?.name ?? s).filter(Boolean);
-  }, [sizesList, product]);
+  // Extract variants in a resilient way
+  const variants = useMemo(() => (Array.isArray(variantsState) && variantsState.length ? variantsState : pickVariantsFromProduct(product)), [variantsState, product]);
+
+  // Build color/size options preferably from variants so names match
+  const colorOptions = useMemo(() => extractColorOptionsFrom(variants, colors.length ? colors : (product?.colors || product?.colorOptions || product?.options?.colors || product?.availableColors || [])), [variants, colors, product]);
+  const sizeOptions = useMemo(() => extractSizeOptionsFrom(variants, sizesList.length ? sizesList : (product?.sizes || product?.sizeOptions || product?.options?.sizes || product?.availableSizes || [])), [variants, sizesList, product]);
+
+  // Auto-select defaults if only one option is available
+  useEffect(() => {
+    if (!selectedColor && colorOptions.length === 1) setSelectedColor(colorOptions[0]);
+  }, [colorOptions, selectedColor]);
+  useEffect(() => {
+    if (!selectedSize && sizeOptions.length === 1) setSelectedSize(sizeOptions[0]);
+  }, [sizeOptions, selectedSize]);
 
   const sku = product?.sku || product?.SKU || product?.code || "";
   const rating = Number(product?.rating || product?.stars || 0);
@@ -109,6 +109,28 @@ export default function ProductDetailPage() {
     originalPrice > price && originalPrice > 0
       ? Math.round(((originalPrice - price) / originalPrice) * 100)
       : Number(product?.discount) || 0;
+
+  // Try to infer variant_id from selected color/size
+  const variantId = useMemo(() => resolveVariantId({ variants, product, selectedColor, selectedSize }), [variants, product, selectedColor, selectedSize]);
+
+  async function handleAddToCart() {
+    try {
+      if (!variantId) {
+        console.warn('Variant could not be resolved. Please select color/size.')
+        showToast({ variant: 'danger', message: 'Không xác định được biến thể sản phẩm. Vui lòng chọn màu/size.' });
+        return;
+      }
+      setSaving(true);
+      const payload = { variantId, quantity: quantity || 1 }
+      const response = await addToCart(payload);
+      showToast({ message: 'Đã thêm vào giỏ hàng' });
+      window.dispatchEvent(new CustomEvent('cart:changed'));
+    } catch (e) {
+      showToast({ variant: 'danger', message: e?.message || 'Thêm vào giỏ hàng thất bại' });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   if (loading)
     return <div className="container-xxl py-4">Đang tải sản phẩm...</div>;
@@ -244,7 +266,7 @@ export default function ProductDetailPage() {
           </div>
 
           <div className="d-flex align-items-center gap-3 mb-3 flex-wrap">
-            <button className="btn btn-dark px-4">THÊM VÀO GIỎ</button>
+            <button className="btn btn-dark px-4" disabled={saving} onClick={handleAddToCart}>{saving ? 'ĐANG THÊM...' : 'THÊM VÀO GIỎ'}</button>
             <button className="btn btn-outline-secondary px-4">MUA HÀNG</button>
             <button className="btn btn-outline-secondary px-3">
               <i className="bi bi-heart"></i>

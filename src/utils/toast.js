@@ -8,34 +8,41 @@ export function showToast({ message, title = '', variant = 'success', delay = 30
     document.body.appendChild(container)
   }
 
+  const icons = {
+    success: '✔️',
+    danger: '❌',
+    warning: '⚠️',
+    info: 'ℹ️'
+  }
+
   const wrapper = document.createElement('div')
-  wrapper.className = `toast align-items-center text-bg-${variant} border-0`
+  wrapper.className = `modern-toast toast-${variant}`
   wrapper.setAttribute('role', 'alert')
-  wrapper.setAttribute('aria-live', 'assertive')
-  wrapper.setAttribute('aria-atomic', 'true')
   wrapper.innerHTML = `
-    <div class="d-flex">
-      <div class="toast-body">${title ? `<strong class='me-2'>${title}</strong>` : ''}${message}</div>
-      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-    </div>`
+    <div class="toast-content">
+      <div class="toast-icon">${icons[variant] || '🔔'}</div>
+      <div class="toast-text">
+        ${title ? `<div class="toast-title">${title}</div>` : ''}
+        <div class="toast-message">${message}</div>
+      </div>
+      <button type="button" class="toast-close">&times;</button>
+    </div>
+    <div class="toast-progress"></div>
+  `
 
   container.appendChild(wrapper)
 
-  const Bootstrap = window.bootstrap
-  if (Bootstrap && typeof Bootstrap.Toast === 'function') {
-    const toast = new Bootstrap.Toast(wrapper, { delay })
-    toast.show()
-    wrapper.addEventListener('hidden.bs.toast', () => {
-      wrapper.remove()
-    })
-  } else {
-    // Fallback: show and auto-remove without Bootstrap JS
-    wrapper.classList.add('show')
-    setTimeout(() => {
-      try { wrapper.classList.remove('show') } catch (_) {}
-      try { wrapper.remove() } catch (_) {}
-    }, delay + 300)
+  // auto remove
+  setTimeout(() => wrapper.classList.add('hide'), delay - 300)
+  setTimeout(() => wrapper.remove(), delay)
+  
+  // close button
+  wrapper.querySelector('.toast-close').onclick = () => {
+    wrapper.classList.add('hide')
+    setTimeout(() => wrapper.remove(), 300)
   }
+
+  // start progress animation
+  const progress = wrapper.querySelector('.toast-progress')
+  progress.style.animationDuration = `${delay}ms`
 }
-
-
