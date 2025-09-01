@@ -10,6 +10,7 @@ import ProtectedRoute from './routes/ProtectedRoute'
 import AddressesPage from './pages/addresses'
 import OrdersPage from './pages/orders'
 import ProductDetailPage from './pages/product-detail'
+import CartPage from './pages/cart'
 
 function App() {
   return (
@@ -28,6 +29,7 @@ function App() {
           <Route path="orders" element={<OrdersPage />} />
           <Route path="addresses" element={<AddressesPage />} />
         </Route>
+        <Route path="/cart" element={<CartPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
