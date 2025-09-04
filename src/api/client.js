@@ -2,9 +2,9 @@ import { getToken, clearAuth } from '../utils/auth'
 
 export async function apiRequest(path, options = {}) {
   const url = `/api${path.startsWith("/") ? "" : "/"}${path}`;
-  const defaultHeaders = {
-    "Content-Type": "application/json",
-  };
+
+  const method = (options.method || 'GET').toUpperCase()
+  const defaultHeaders = {}
 
   // Attach token if available
   try {
@@ -14,18 +14,49 @@ export async function apiRequest(path, options = {}) {
     }
   } catch (_) {}
 
-  const response = await fetch(url, {
-    credentials: "include",
-    headers: { ...defaultHeaders, ...(options.headers || {}) },
-    ...options,
-  });
+  // Only set JSON content-type when sending a body (non-GET/HEAD)
+  if (method !== 'GET' && method !== 'HEAD') {
+    defaultHeaders['Content-Type'] = 'application/json'
+  }
+
+  // Timeout + Abort support
+  const timeoutMs = options.timeoutMs ?? 12000
+  const externalSignal = options.signal
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => {
+    try { controller.abort('timeout') } catch (_) {}
+  }, timeoutMs)
+
+  // Bridge external signal if provided
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      try { controller.abort(externalSignal.reason) } catch (_) {}
+    } else {
+      externalSignal.addEventListener('abort', () => {
+        try { controller.abort(externalSignal.reason) } catch (_) {}
+      }, { once: true })
+    }
+  }
+
+  let response
+  try {
+    response = await fetch(url, {
+      credentials: "include",
+      headers: { ...defaultHeaders, ...(options.headers || {}) },
+      signal: controller.signal,
+      ...options,
+    });
+  } finally {
+    clearTimeout(timeoutId)
+  }
 
   const contentType = response.headers.get("content-type") || "";
   const isJson = contentType.includes("application/json");
-  const data = isJson ? await response.json() : await response.text();
+  // 204 No Content safety
+  const data = response.status === 204 ? null : (isJson ? await response.json() : await response.text());
 
   if (!response.ok) {
-    const message = isJson ? data?.message || JSON.stringify(data) : data;
+    const message = isJson ? data?.message || JSON.stringify(data) : (data || '')
     const error = new Error(message || `Request failed with ${response.status}`);
     error.status = response.status;
     error.data = data;

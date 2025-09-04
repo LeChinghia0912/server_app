@@ -57,14 +57,25 @@ export function placeholderSvg(width, height, text = 'No Image') {
 
 // Unified accessors and normalization helpers
 export function normalizeVariant(variant) {
-  if (!variant) return { id: undefined, productId: undefined, colorName: '', sizeName: '', price: 0 }
+  if (!variant) return { id: undefined, productId: undefined, colorName: '', sizeName: '', price: 0, stock: 0 }
   const price = typeof variant.price === 'string' ? Number.parseFloat(variant.price) || 0 : variant.price ?? 0
+  const rawStock =
+    variant.stock ??
+    variant.quantity ??
+    variant.qty ??
+    variant.inventory ??
+    variant.inventory_quantity ??
+    variant.available ??
+    variant.available_quantity ??
+    0
+  const stock = Number.isFinite(Number(rawStock)) ? Number(rawStock) : 0
   return {
     id: variant.id ?? variant._id ?? variant.uuid,
     productId: variant.product_id ?? variant.productId ?? variant.product?.id,
     colorName: (variant.color_name ?? variant.color?.name ?? variant.color ?? '').toString().trim(),
     sizeName: (variant.size_name ?? variant.size?.name ?? variant.size ?? '').toString().trim(),
     price,
+    stock,
   }
 }
 

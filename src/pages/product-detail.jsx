@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { getProductById } from "../api/products";
 import { getColors } from "../api/colors";
 import { getSizes } from "../api/sizes";
-import { resolveImageFromProduct, formatCurrency, placeholderSvg, pickVariantsFromProduct, extractColorOptionsFrom, extractSizeOptionsFrom, resolveVariantId } from "../utils/product";
+import { resolveImageFromProduct, formatCurrency, placeholderSvg, pickVariantsFromProduct, extractColorOptionsFrom, extractSizeOptionsFrom, resolveVariantId, normalizeVariant } from "../utils/product";
 import { addToCart } from "../api/cart";
 import { showToast } from "../utils/toast";
 import { getVariantsByProductId } from "../api/variants";
@@ -112,6 +112,23 @@ export default function ProductDetailPage() {
 
   // Try to infer variant_id from selected color/size
   const variantId = useMemo(() => resolveVariantId({ variants, product, selectedColor, selectedSize }), [variants, product, selectedColor, selectedSize]);
+  const selectedVariant = useMemo(() => {
+    const list = Array.isArray(variants) ? variants : []
+    const v = list.find(v => (v.id ?? v._id ?? v.uuid) === variantId)
+    return normalizeVariant(v)
+  }, [variants, variantId])
+
+  const maxStock = Number.isFinite(Number(selectedVariant?.stock)) ? Number(selectedVariant.stock) : (Number(product?.stock) || 0)
+  const outOfStock = maxStock <= 0
+
+  useEffect(() => {
+    // When variant changes, reset or clamp quantity to available stock
+    setQuantity(q => {
+      if (outOfStock) return 1
+      const n = Number.isFinite(maxStock) && maxStock > 0 ? Math.min(q || 1, maxStock) : (q || 1)
+      return n
+    })
+  }, [variantId, maxStock, outOfStock])
 
   async function handleAddToCart() {
     try {
@@ -119,6 +136,14 @@ export default function ProductDetailPage() {
         console.warn('Variant could not be resolved. Please select color/size.')
         showToast({ variant: 'danger', message: 'Không xác định được biến thể sản phẩm. Vui lòng chọn màu/size.' });
         return;
+      }
+      if (outOfStock) {
+        showToast({ variant: 'warning', message: 'Biến thể đã hết hàng' })
+        return
+      }
+      if (quantity > maxStock) {
+        showToast({ variant: 'warning', message: `Chỉ còn ${maxStock} sản phẩm trong kho` })
+        return
       }
       setSaving(true);
       const payload = { variantId, quantity: quantity || 1 }
@@ -198,6 +223,9 @@ export default function ProductDetailPage() {
           {colorOptions.length > 0 ? (
             <>
               <div className="mb-2 fw-semibold">
+              {typeof selectedVariant?.stock !== "undefined" ? (
+                <div className="text-muted mt-3"><h5>Tồn kho: {selectedVariant.stock}</h5></div>
+              ) : null}
                 Màu sắc{selectedColor ? (
                   <>
                     {": "}
@@ -252,6 +280,7 @@ export default function ProductDetailPage() {
           <div className="d-inline-flex align-items-stretch border rounded overflow-hidden mb-3">
             <button
               className="btn btn-light"
+              disabled={outOfStock || quantity <= 1}
               onClick={() => setQuantity((q) => Math.max(1, q - 1))}
             >
               -
@@ -259,14 +288,15 @@ export default function ProductDetailPage() {
             <div className="px-3 d-flex align-items-center">{quantity}</div>
             <button
               className="btn btn-light"
-              onClick={() => setQuantity((q) => q + 1)}
+              disabled={outOfStock || (Number.isFinite(maxStock) && maxStock > 0 && quantity >= maxStock)}
+              onClick={() => setQuantity((q) => (Number.isFinite(maxStock) && maxStock > 0 ? Math.min(maxStock, q + 1) : q + 1))}
             >
               +
             </button>
           </div>
 
           <div className="d-flex align-items-center gap-3 mb-3 flex-wrap">
-            <button className="btn btn-dark px-4" disabled={saving} onClick={handleAddToCart}>{saving ? 'ĐANG THÊM...' : 'THÊM VÀO GIỎ'}</button>
+            <button className="btn btn-dark px-4" disabled={saving || outOfStock} onClick={handleAddToCart}>{saving ? 'ĐANG THÊM...' : (outOfStock ? 'HẾT HÀNG' : 'THÊM VÀO GIỎ')}</button>
             <button className="btn btn-outline-secondary px-4">MUA HÀNG</button>
             <button className="btn btn-outline-secondary px-3">
               <i className="bi bi-heart"></i>
@@ -275,9 +305,7 @@ export default function ProductDetailPage() {
 
           <button className="btn btn-link px-0">Tìm tại cửa hàng</button>
 
-          {typeof product?.stock !== "undefined" ? (
-            <div className="text-muted mt-3">Tồn kho: {product.stock}</div>
-          ) : null}
+          
         </div>
       </div>
     </div>
