@@ -9,6 +9,7 @@ import UserProfile from './pages/user-profile'
 import ProtectedRoute from './routes/ProtectedRoute'
 import AddressesPage from './pages/addresses'
 import OrdersPage from './pages/orders'
+import OrderDetailPage from './pages/order-detail'
 import ProductDetailPage from './pages/product-detail'
 import CartPage from './pages/cart'
 
@@ -27,6 +28,7 @@ function App() {
         }>
           <Route index element={<UserProfile />} />
           <Route path="orders" element={<OrdersPage />} />
+          <Route path="orders/:id" element={<OrderDetailPage />} />
           <Route path="addresses" element={<AddressesPage />} />
         </Route>
         <Route path="/cart" element={<CartPage />} />

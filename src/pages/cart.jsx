@@ -1,18 +1,40 @@
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
 import { getCart, updateCartItem, removeCartItem } from '../api/cart'
 import { formatCurrency, resolveImageFromProduct, placeholderSvg, normalizeVariant } from '../utils/product'
 import { showToast } from '../utils/toast'
-import { getProductById } from '../api/products'
+import { getProductByIdCached } from '../api/products'
 import { isAuthenticated } from '../utils/auth'
+import { createOrder } from '../api/orders'
 
 export default function CartPage() {
   const [cart, setCart] = useState({ items: [], total: 0 })
   const [loading, setLoading] = useState(true)
   const [updatingId, setUpdatingId] = useState(null)
   const [productMap, setProductMap] = useState({})
+  const [placing, setPlacing] = useState(false)
+  const navigate = useNavigate()
 
   const PLACEHOLDER_IMG = useMemo(() => placeholderSvg(120, 160, 'No Image'), [])
+
+  function getMaxStockForItem(item) {
+    const norm = normalizeVariant(item?.variant)
+    const candidates = [
+      norm?.stock,
+      item?.stock,
+      item?.available,
+      item?.inventory,
+      item?.available_quantity,
+      item?.variant?.stock,
+      item?.variant?.quantity,
+      item?.variant?.inventory,
+    ]
+    for (const v of candidates) {
+      const n = Number(v)
+      if (Number.isFinite(n) && n >= 0) return n
+    }
+    return Infinity
+  }
 
   async function loadCart() {
     try {
@@ -49,7 +71,7 @@ export default function CartPage() {
     let cancelled = false
     async function loadProducts() {
       try {
-        const results = await Promise.allSettled(missing.map(id => getProductById(id)))
+        const results = await Promise.allSettled(missing.map(id => getProductByIdCached(id)))
         const nextMap = { ...productMap }
         results.forEach((r, idx) => {
           const pid = missing[idx]
@@ -65,18 +87,34 @@ export default function CartPage() {
     return () => { cancelled = true }
   }, [cart.items, productMap])
 
+  // Debounced quantity updates to reduce rapid API calls when typing
+  const qtyTimers = useMemo(() => new Map(), [])
   async function changeQty(item, nextQty) {
     if (nextQty < 0) return
-    try {
-      setUpdatingId(item.id)
-      const data = await updateCartItem(item.id, nextQty)
-      setCart({ items: data?.items || [], total: data?.total || 0 })
-      window.dispatchEvent(new CustomEvent('cart:changed'))
-    } catch (e) {
-      showToast({ variant: 'danger', message: e?.message || 'Cập nhật số lượng thất bại' })
-    } finally {
-      setUpdatingId(null)
-    }
+    const maxStock = getMaxStockForItem(item)
+    const capped = Number.isFinite(maxStock) ? Math.min(nextQty, maxStock) : nextQty
+    setUpdatingId(item.id)
+    // optimistic UI update
+    setCart(prev => {
+      const items = (prev.items || []).map(it => it.id === item.id ? { ...it, quantity: capped } : it)
+      const total = items.reduce((s, it) => s + (it.price ?? it.variant?.price ?? 0) * (it.quantity||0), 0)
+      return { items, total }
+    })
+    // debounce network call per item
+    const key = item.id
+    clearTimeout(qtyTimers.get(key))
+    const timer = setTimeout(async () => {
+      try {
+        const data = await updateCartItem(item.id, capped)
+        setCart({ items: data?.items || [], total: data?.total || 0 })
+        window.dispatchEvent(new CustomEvent('cart:changed'))
+      } catch (e) {
+        showToast({ variant: 'danger', message: e?.message || 'Cập nhật số lượng thất bại' })
+      } finally {
+        setUpdatingId(null)
+      }
+    }, 350)
+    qtyTimers.set(key, timer)
   }
 
   async function removeItem(item) {
@@ -89,6 +127,46 @@ export default function CartPage() {
       showToast({ variant: 'danger', message: e?.message || 'Xóa sản phẩm thất bại' })
     } finally {
       setUpdatingId(null)
+    }
+  }
+
+  const invalidItems = useMemo(() => {
+    return (cart.items || []).filter(it => {
+      const max = getMaxStockForItem(it)
+      if (max === 0 && (it.quantity || 0) > 0) return true
+      if (Number.isFinite(max) && (it.quantity || 0) > max) return true
+      return false
+    })
+  }, [cart.items])
+
+  async function placeOrder() {
+    try {
+      if (!isAuthenticated()) {
+        showToast({ variant: 'warning', message: 'Vui lòng đăng nhập để đặt hàng' })
+        navigate('/login')
+        return
+      }
+      if ((cart.items || []).length === 0) {
+        showToast({ variant: 'warning', message: 'Giỏ hàng trống' })
+        return
+      }
+      if (invalidItems.length > 0) {
+        showToast({ variant: 'warning', message: 'Một số sản phẩm vượt quá tồn kho hoặc đã hết hàng' })
+        return
+      }
+      setPlacing(true)
+      // Many backends create order from current cart; minimal payload
+      const order = await createOrder({})
+      showToast({ message: 'Đặt hàng thành công' })
+      // Clear local cart state; backend should also clear server cart
+      setCart({ items: [], total: 0 })
+      window.dispatchEvent(new CustomEvent('cart:changed'))
+      // Navigate to orders management
+      navigate('/user/orders')
+    } catch (e) {
+      showToast({ variant: 'danger', message: e?.message || 'Đặt hàng thất bại' })
+    } finally {
+      setPlacing(false)
     }
   }
 
@@ -134,6 +212,9 @@ export default function CartPage() {
                       const product = productMap[productId]
                       const imgSrc = resolveImageFromProduct(product || {}) || PLACEHOLDER_IMG
                       const productName = product?.name || product?.title || ''
+                      const maxStock = getMaxStockForItem(item)
+                      const atMax = Number.isFinite(maxStock) && (item.quantity || 0) >= maxStock
+                      const outOfStock = maxStock === 0
                       return (
                       <tr key={item.id}>
                         <td>
@@ -145,20 +226,25 @@ export default function CartPage() {
                               <div className="text-muted small mt-1">Màu sắc: {norm.colorName}</div>
                               <div className="text-muted small mt-1">Size: {norm.sizeName}</div>
                               <div className="text-muted small mt-1">Đơn giá: {formatCurrency(item.price ?? norm.price ?? 0)}</div>
+                              {Number.isFinite(maxStock) ? (
+                                <div className={`small mt-1 ${outOfStock ? 'text-danger' : 'text-muted'}`}>{outOfStock ? 'Hết hàng' : `Còn ${maxStock} sp`}</div>
+                              ) : null}
                             </div>
                           </div>
                         </td>
                         <td className="text-center text-danger">{/* Optional discount display */}</td>
                         <td className="text-center">
                           <div className="input-group input-group-sm justify-content-center" style={{maxWidth:140}}>
-                            <button className="btn btn-outline-secondary" type="button" aria-label="Giảm" disabled={updatingId===item.id}
+                            <button className="btn btn-outline-secondary" type="button" aria-label="Giảm" disabled={updatingId===item.id || (item.quantity||0) <= 0}
                               onClick={() => changeQty(item, Math.max(0, (item.quantity||0) - 1))}>-</button>
                             <input className="form-control text-center" value={item.quantity}
                               onChange={(e)=> {
-                                const val = Math.max(0, Number.parseInt(e.target.value||'0')||0)
+                                const raw = Math.max(0, Number.parseInt(e.target.value||'0')||0)
+                                const max = getMaxStockForItem(item)
+                                const val = Number.isFinite(max) ? Math.min(raw, max) : raw
                                 changeQty(item, val)
                               }} />
-                            <button className="btn btn-outline-secondary" type="button" aria-label="Tăng" disabled={updatingId===item.id}
+                            <button className="btn btn-outline-secondary" type="button" aria-label="Tăng" disabled={updatingId===item.id || (Number.isFinite(maxStock) && atMax)}
                               onClick={() => changeQty(item, (item.quantity||0) + 1)}>+</button>
                           </div>
                         </td>
@@ -201,7 +287,9 @@ export default function CartPage() {
             <div className="small text-danger mb-3">
               Sản phẩm nằm trong chương trình KM giảm giá trên 50% không hỗ trợ đổi trả
             </div>
-            <button className="btn btn-dark w-100">Đặt hàng</button>
+            <button className="btn btn-dark w-100" disabled={placing || loading || cart.items.length === 0} onClick={placeOrder}>
+              {placing ? 'ĐANG ĐẶT HÀNG...' : 'Đặt hàng'}
+            </button>
           </div>
         </div>
       </div>

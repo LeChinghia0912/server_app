@@ -20,3 +20,27 @@ export async function getProductById(id) {
 }
 
 
+// Simple in-memory cache for product details to avoid duplicate requests
+const productCache = new Map()
+const inflight = new Map()
+
+export async function getProductByIdCached(id) {
+  if (!id) throw new Error('Missing product id')
+  if (productCache.has(id)) return productCache.get(id)
+  if (inflight.has(id)) return inflight.get(id)
+  const p = getProductById(id)
+    .then(res => {
+      const data = res?.data || res
+      productCache.set(id, data)
+      inflight.delete(id)
+      return data
+    })
+    .catch(err => {
+      inflight.delete(id)
+      throw err
+    })
+  inflight.set(id, p)
+  return p
+}
+
+
