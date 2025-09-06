@@ -1,11 +1,12 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useEffect, useMemo, useState } from 'react'
-import { getCart, updateCartItem, removeCartItem } from '../api/cart'
+import { getCart, updateCartItem, removeCartItem, setCartMethod } from '../api/cart'
 import { formatCurrency, resolveImageFromProduct, placeholderSvg, normalizeVariant } from '../utils/product'
 import { showToast } from '../utils/toast'
 import { getProductByIdCached } from '../api/products'
 import { isAuthenticated } from '../utils/auth'
 import { createOrder } from '../api/orders'
+import QRPayment from '../assets/images/QR_Payment.png'
 
 export default function CartPage() {
   const [cart, setCart] = useState({ items: [], total: 0 })
@@ -13,6 +14,8 @@ export default function CartPage() {
   const [updatingId, setUpdatingId] = useState(null)
   const [productMap, setProductMap] = useState({})
   const [placing, setPlacing] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState('cod')
+  const [qrPreviewOpen, setQrPreviewOpen] = useState(false)
   const navigate = useNavigate()
 
   const PLACEHOLDER_IMG = useMemo(() => placeholderSvg(120, 160, 'No Image'), [])
@@ -40,14 +43,18 @@ export default function CartPage() {
     try {
       setLoading(true)
       if (!isAuthenticated()) {
-        setCart({ items: [], total: 0 })
+        setCart({ items: [], total: 0, method: undefined })
         return
       }
       const data = await getCart()
-      setCart({ items: data?.items || [], total: data?.total || 0 })
+      setCart({
+        items: data?.items || [],
+        total: data?.total || 0,
+        method: (typeof data?.method === 'number') ? data.method : undefined,
+      })
     } catch (e) {
       if (e?.status === 401) {
-        setCart({ items: [], total: 0 })
+        setCart({ items: [], total: 0, method: undefined })
       } else {
         showToast({ variant: 'danger', message: e?.message || 'Không tải được giỏ hàng' })
       }
@@ -62,6 +69,26 @@ export default function CartPage() {
     window.addEventListener('auth:change', onAuth)
     return () => window.removeEventListener('auth:change', onAuth)
   }, [])
+
+  // Initialize and persist method with backend contract: 1 = COD, 2 = ATM
+  useEffect(() => {
+    const m = cart?.method
+    if (m === 2) setPaymentMethod('bank')
+    else if (m === 1) setPaymentMethod('cod')
+  }, [cart?.method])
+
+  // Persist selection to backend when user changes it
+  useEffect(() => {
+    const numeric = paymentMethod === 'bank' ? 2 : 1
+    if (!isAuthenticated()) return
+    if (cart?.method === numeric) return
+    ;(async () => {
+      try {
+        await setCartMethod(numeric)
+        setCart(prev => ({ ...prev, method: numeric }))
+      } catch (_) {}
+    })()
+  }, [paymentMethod])
 
   // Fetch product details (name, image) for items that only have product id
   useEffect(() => {
@@ -98,7 +125,7 @@ export default function CartPage() {
     setCart(prev => {
       const items = (prev.items || []).map(it => it.id === item.id ? { ...it, quantity: capped } : it)
       const total = items.reduce((s, it) => s + (it.price ?? it.variant?.price ?? 0) * (it.quantity||0), 0)
-      return { items, total }
+      return { items, total, method: prev.method }
     })
     // debounce network call per item
     const key = item.id
@@ -106,7 +133,11 @@ export default function CartPage() {
     const timer = setTimeout(async () => {
       try {
         const data = await updateCartItem(item.id, capped)
-        setCart({ items: data?.items || [], total: data?.total || 0 })
+        setCart(prev => ({
+          items: data?.items || [],
+          total: data?.total || 0,
+          method: (typeof data?.method === 'number') ? data.method : prev.method,
+        }))
         window.dispatchEvent(new CustomEvent('cart:changed'))
       } catch (e) {
         showToast({ variant: 'danger', message: e?.message || 'Cập nhật số lượng thất bại' })
@@ -121,7 +152,11 @@ export default function CartPage() {
     try {
       setUpdatingId(item.id)
       const data = await removeCartItem(item.id)
-      setCart({ items: data?.items || [], total: data?.total || 0 })
+      setCart(prev => ({
+        items: data?.items || [],
+        total: data?.total || 0,
+        method: (typeof data?.method === 'number') ? data.method : prev.method,
+      }))
       window.dispatchEvent(new CustomEvent('cart:changed'))
     } catch (e) {
       showToast({ variant: 'danger', message: e?.message || 'Xóa sản phẩm thất bại' })
@@ -155,8 +190,11 @@ export default function CartPage() {
         return
       }
       setPlacing(true)
-      // Many backends create order from current cart; minimal payload
-      const order = await createOrder({})
+      const payload = {
+        payment_method: paymentMethod === 'bank' ? 2 : 1, // 1=COD, 2=ATM
+      }
+      const numericMethod = paymentMethod === 'bank' ? 2 : 1
+      const order = await createOrder(payload)
       showToast({ message: 'Đặt hàng thành công' })
       // Clear local cart state; backend should also clear server cart
       setCart({ items: [], total: 0 })
@@ -170,7 +208,26 @@ export default function CartPage() {
     }
   }
 
+  const bankInfo = useMemo(() => ({
+    bankName: 'BIDV',
+    accountName: 'LE CHI NGHIA',
+    accountNumber: '5110918709',
+    branch: 'CN PHU DIEN PGD ANH SON',
+    ImageQR: QRPayment,
+  }), [])
+
+  const copyToClipboard = (text) => {
+    try {
+      if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          showToast({ variant: 'success', message: 'Đã sao chép' })
+        }).catch(() => {})
+      }
+    } catch (_) {}
+  }
+
   return (
+    <>
     <div className="cart-page">
       <div className="row g-4">
         <div className="col-12">
@@ -268,6 +325,43 @@ export default function CartPage() {
         <div className="col-12 col-lg-4">
           <div className="bg-white p-3 p-md-4 rounded-2 shadow-sm position-sticky" style={{top:16}}>
             <h6 className="mb-3">Tổng tiền giỏ hàng</h6>
+            <div className="mb-3">
+              <div className="fw-semibold mb-2">Phương thức thanh toán</div>
+              <div className="d-flex flex-column gap-2">
+                <div className="form-check">
+                  <input className="form-check-input" type="radio" name="paymentMethod" id="cart-pm-cod" value="cod" checked={paymentMethod==='cod'} onChange={() => setPaymentMethod('cod')} />
+                  <label className="form-check-label" htmlFor="cart-pm-cod">Thanh toán khi nhận hàng (COD)</label>
+                </div>
+                <div className="form-check">
+                  <input className="form-check-input" type="radio" name="paymentMethod" id="cart-pm-bank" value="bank" checked={paymentMethod==='bank'} onChange={() => setPaymentMethod('bank')} />
+                  <label className="form-check-label" htmlFor="cart-pm-bank">Chuyển khoản ngân hàng (Trả trước)</label>
+                </div>
+              </div>
+              {paymentMethod === 'bank' ? (
+                <div className="border rounded p-3 bg-light mt-2">
+                  <div className="small text-muted mb-2">Thông tin chuyển khoản</div>
+                  <div className="d-flex justify-content-between mb-2"><span>Ngân hàng</span><span className="fw-semibold">{bankInfo.bankName}</span></div>
+                  <div className="d-flex justify-content-between mb-2"><span>Chủ tài khoản</span><span className="fw-semibold">{bankInfo.accountName}</span></div>
+                  <div className="mb-2">
+                    <div className="d-flex justify-content-between align-items-center">
+                      <span>Số tài khoản</span>
+                      <div className="d-flex align-items-center gap-2">
+                        <span className="fw-semibold">{bankInfo.accountNumber}</span>
+                        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => copyToClipboard(bankInfo.accountNumber)}>Sao chép</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="d-flex justify-content-between mb-2"><span>Chi nhánh</span><span className="fw-semibold">{bankInfo.branch}</span></div>
+                  <div className="d-flex justify-content-between mb-2">
+                    <span>Ảnh QR</span>
+                    <span className="fw-semibold">
+                      <img src={bankInfo.ImageQR} alt="QR Payment" width="100" height="100" style={{cursor:'pointer', objectFit:'contain'}} role="button" onClick={() => setQrPreviewOpen(true)} />
+                    </span>
+                  </div>
+                  <div className="small text-muted">Sau khi đặt hàng, vui lòng chuyển khoản theo thông tin trên và ghi rõ nội dung thanh toán.</div>
+                </div>
+              ) : null}
+            </div>
             <div className="d-flex justify-content-between mb-2">
               <span>Tổng sản phẩm</span>
               <span>{cart.items.length}</span>
@@ -294,6 +388,17 @@ export default function CartPage() {
         </div>
       </div>
     </div>
+    {qrPreviewOpen ? (
+      <div className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style={{backgroundColor:'rgba(0,0,0,0.7)', zIndex:1050}} onClick={() => setQrPreviewOpen(false)}>
+        <div className="position-relative p-2" onClick={(e)=> e.stopPropagation()}>
+          <button type="button" className="btn btn-light position-absolute" style={{top:8, right:8}} aria-label="Đóng" onClick={() => setQrPreviewOpen(false)}>
+            <i className="bi bi-x-lg"></i>
+          </button>
+          <img src={bankInfo.ImageQR} alt="QR Payment Preview" style={{maxWidth:'90vw', maxHeight:'85vh', objectFit:'contain'}} />
+        </div>
+      </div>
+    ) : null}
+    </>
   )
 }
 

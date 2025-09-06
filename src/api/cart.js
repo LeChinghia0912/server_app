@@ -35,3 +35,10 @@ export async function clearCart() {
 }
 
 
+// Update cart-level fields (e.g., payment method)
+export async function setCartMethod(method) {
+  const res = await api.put('/cart/method/set', { method })
+  return res?.data ?? res
+}
+
+
