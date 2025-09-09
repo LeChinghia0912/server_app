@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getOrderById } from '../api/orders'
+import { getOrderById, confirmOrderReceived } from '../api/orders'
 import { showToast } from '../utils/toast'
 import { formatCurrency, resolveImageFromProduct, normalizeVariant } from '../utils/product'
 import { getProductById } from '../api/products'
@@ -46,28 +46,26 @@ export default function OrderDetailPage() {
     const missing = productIds.filter(pid => !productMap[pid])
     if (missing.length === 0) return
     let cancelled = false
-    async function loadProducts() {
+    ;(async () => {
       try {
         const results = await Promise.allSettled(missing.map(pid => getProductById(pid)))
         const map = { ...productMap }
         results.forEach((r, idx) => {
           const pid = missing[idx]
-          if (r.status === 'fulfilled') {
-            const data = r.value?.data || r.value
-            map[pid] = data
-          }
+          if (r.status === 'fulfilled') map[pid] = r.value?.data || r.value
         })
         if (!cancelled) setProductMap(map)
       } catch (_) {}
-    }
-    loadProducts()
+    })()
     return () => { cancelled = true }
   }, [itemList, productMap])
 
   const orderId = order?.code || order?.order_code || order?.id
   const created = order?.createdAt || order?.created_at
   const dateStr = created ? new Date(created).toLocaleString('vi-VN') : ''
-  const status = order?.status || order?.state || 'Đang xử lý'
+  const toStatus = (raw) => ({ pending: 'Chờ xác nhận', paid: 'Đã thanh toán', shipped: 'Đang vận chuyển', shipping: 'Đang vận chuyển', completed: 'Hoàn tất', cancelled: 'Đã hủy' }[String(raw || '').toLowerCase()] || 'Đang xử lý')
+  const normalizedStatus = String(order?.status || order?.state || '').toLowerCase()
+  const status = toStatus(normalizedStatus)
   const total = order?.total || order?.total_amount || order?.amount || 0
 
   const shipping = useMemo(() => {
@@ -95,13 +93,12 @@ export default function OrderDetailPage() {
     const userId = order?.user_id || order?.userId || order?.user?.id || order?.customer_id || order?.customer?.id
     if (!userId) return
     let cancelled = false
-    async function loadUser() {
+    ;(async () => {
       try {
         const profile = await getUserById(userId)
         if (!cancelled) setUserProfile(profile?.data || profile)
       } catch (_) {}
-    }
-    loadUser()
+    })()
     return () => { cancelled = true }
   }, [order])
 
@@ -193,6 +190,28 @@ export default function OrderDetailPage() {
                   <div className="d-flex justify-content-between mb-2"><span>Trạng thái</span><span>{status}</span></div>
                   <div className="d-flex justify-content-between mb-2"><span>Tổng tiền</span><span className="fw-semibold">{formatCurrency(total)}</span></div>
                   <hr />
+                  {/* Actions for customer: confirm received when shipped */}
+                  <div className="d-flex gap-2 flex-wrap mb-3">
+                    {/* Shipped/Shipping: allow confirm received → completed */}
+                    {['shipped', 'shipping'].includes(normalizedStatus) ? (
+                      <button
+                        type="button"
+                        className="btn btn-success btn-sm"
+                        onClick={async () => {
+                          try {
+                            const updated = await confirmOrderReceived(orderId)
+                            // confirmOrderReceived ensures status → completed; reflect immediately
+                            setOrder(prev => ({ ...(prev || {}), ...(updated?.data || updated), status: 'completed', state: 'completed' }))
+                            showToast({ variant: 'success', message: 'Đã cập nhật đơn hàng thành Hoàn tất' })
+                          } catch (e) {
+                            showToast({ variant: 'danger', message: e?.message || 'Không thể xác nhận đã nhận hàng' })
+                          }
+                        }}
+                      >
+                        Đã nhận được hàng
+                      </button>
+                    ) : null}
+                  </div>
                   {accountAddress ? (
                     <>
                       <hr />
