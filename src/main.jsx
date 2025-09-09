@@ -9,10 +9,12 @@ import 'bootstrap/dist/js/bootstrap.bundle.min.js'
 import App from './App.jsx'
 import { BrowserRouter } from 'react-router-dom'
 
+const app = (
+  <BrowserRouter>
+    <App />
+  </BrowserRouter>
+)
+
 createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  </StrictMode>, 
+  import.meta.env.PROD ? <StrictMode>{app}</StrictMode> : app,
 )
